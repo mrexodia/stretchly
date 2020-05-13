@@ -27,6 +27,8 @@ let welcomeWin = null
 let contributorSettingsWindow = null
 let settings
 let pausedForSuspendOrLock = false
+let userCurrentlyIdle = false
+let pausedForIdleTime = false
 
 app.setAppUserModelId('net.hovancik.stretchly')
 
@@ -107,6 +109,37 @@ function startPowerMonitoring () {
   electron.powerMonitor.on('lock-screen', onSuspendOrLock)
   electron.powerMonitor.on('resume', onResumeOrUnlock)
   electron.powerMonitor.on('unlock-screen', onResumeOrUnlock)
+  setInterval(() => pollTimeout(electron), 1000)
+}
+
+function pollTimeout (electron) {
+  const idleTime = electron.powerMonitor.getSystemIdleTime()
+  console.log('pollTimeout() idleTime: ' + idleTime + ', timeLeft: ' + Math.round(breakPlanner.scheduler.timeLeft / 1000) + ', reference: ' + breakPlanner.scheduler.reference)
+
+  // Handle idle detection
+  if (idleTime > 5) {
+    if (!userCurrentlyIdle) {
+      userCurrentlyIdle = true
+      console.log('user became idle')
+
+      if (!pausedForIdleTime) {
+        pausedForIdleTime = true
+
+        // breakPlanner.scheduler.pause()
+      }
+    } else {
+      // user still idle, nothing to do
+    }
+  } else if (userCurrentlyIdle) {
+    userCurrentlyIdle = false
+    console.log('user no longer idle')
+
+    if (pausedForIdleTime) {
+      pausedForIdleTime = false
+
+      // breakPlanner.scheduler.resume()
+    }
+  }
 }
 
 function numberOfDisplays () {
