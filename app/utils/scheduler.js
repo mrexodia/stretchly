@@ -9,6 +9,10 @@ class Scheduler {
     this.allowPause = false
   }
 
+  get isPaused () {
+    return this.timeLeftWhenPaused !== null
+  }
+
   get timeLeft () {
     if (this.timer === null) return false
     if (this.timeLeftWhenPaused !== null) return this.timeLeftWhenPaused
@@ -16,14 +20,14 @@ class Scheduler {
   }
 
   pause () {
-    if (!this.allowPause || this.timer === null || this.timeLeftWhenPaused !== null) return
+    if (!this.allowPause || this.timer === null || this.isPaused) return
     clearTimeout(this.timer)
     this.timeLeftWhenPaused = this.timeLeft
     return true
   }
 
   resume () {
-    if (this.timer === null || this.timeLeftWhenPaused === null) return
+    if (this.timer === null || !this.isPaused) return
     this.delay = Math.max(100, this.timeLeftWhenPaused)
     this.timeLeftWhenPaused = null
     this.plan()

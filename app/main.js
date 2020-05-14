@@ -28,7 +28,8 @@ let contributorSettingsWindow = null
 let settings
 let pausedForSuspendOrLock = false
 let userCurrentlyIdle = false
-let pausedForIdleTime = false
+let inNaturalBreak = false
+let inNaturalMicrobreak = false
 
 app.setAppUserModelId('net.hovancik.stretchly')
 
@@ -113,31 +114,60 @@ function startPowerMonitoring () {
 }
 
 function pollTimeout (electron) {
-  const idleTime = electron.powerMonitor.getSystemIdleTime()
-  console.log('pollTimeout() idleTime: ' + idleTime + ', timeLeft: ' + Math.round(breakPlanner.scheduler.timeLeft / 1000) + ', reference: ' + breakPlanner.scheduler.reference)
+  const idleTime = electron.powerMonitor.getSystemIdleTime() * 1000
+  const idleThreshold = settings.get('naturalBreaksInactivityResetTime')
+  const idleEnabled = settings.get('naturalBreaks')
+  const shouldBreak = settings.get('break')
+  const breakDuration = settings.get('breakDuration')
+  const shouldMicrobreak = settings.get('microbreak')
+  const microbreakDuration = settings.get('microbreakDuration')
+
+  console.log('pollTimeout() idleTime: ' + idleTime / 1000 + ', timeLeft: ' + Math.round(breakPlanner.scheduler.timeLeft / 1000) + ', reference: ' + breakPlanner.scheduler.reference + ', breakNumber: ' + breakPlanner.breakNumber)
 
   // Handle idle detection
-  if (idleTime > 5) {
+  if (idleEnabled && idleTime >= idleThreshold) {
     if (!userCurrentlyIdle) {
       userCurrentlyIdle = true
       console.log('user became idle')
+    }
 
-      if (!pausedForIdleTime) {
-        pausedForIdleTime = true
+    // When idle for longer than the break duration, reset all breaks and pause
+    if (shouldBreak && idleTime >= breakDuration && !inNaturalBreak) {
+      inNaturalBreak = true
+      console.log('user in natural break')
+      resetBreaks()
+    }
 
-        // breakPlanner.scheduler.pause()
-      }
-    } else {
-      // user still idle, nothing to do
+    // When idle for longer than the microbreak duration, reset the timer
+    if (shouldMicrobreak && idleTime >= microbreakDuration && !inNaturalMicrobreak && !inNaturalBreak) {
+      inNaturalMicrobreak = true
+      console.log('user in natural microbreak')
+      breakPlanner.breakNumber = breakPlanner.breakNumber - 1
+      breakPlanner.nextBreak() // TODO: not working, when triggered during a microbreak (or other break?) it will not stop the break when no longer idle
+    }
+
+    // Re-pause timers every tick when idle, it makes things easier
+    if (!breakPlanner.scheduler.isPaused && breakPlanner.scheduler.allowPause) {
+      console.log('pausing timer')
+      breakPlanner.scheduler.pause()
     }
   } else if (userCurrentlyIdle) {
     userCurrentlyIdle = false
     console.log('user no longer idle')
 
-    if (pausedForIdleTime) {
-      pausedForIdleTime = false
+    if (inNaturalBreak) {
+      inNaturalBreak = false
+      console.log('user no longer in natural break')
+    }
 
-      // breakPlanner.scheduler.resume()
+    if (inNaturalMicrobreak) {
+      inNaturalMicrobreak = false
+      console.log('user no longer in natural micro break')
+    }
+
+    if (breakPlanner.scheduler.isPaused) {
+      console.log('resuming timer')
+      breakPlanner.scheduler.resume()
     }
   }
 }
@@ -331,10 +361,6 @@ function startMicrobreak () {
   if (!microbreakIdeas) {
     loadIdeas()
   }
-  if (breakPlanner.naturalBreaksManager.idleTime > settings.get('breakDuration')) {
-    console.log('in natural break')
-    return
-  }
 
   // don't start another break if break running
   if (microbreakWins) {
@@ -427,10 +453,6 @@ function startMicrobreak () {
 function startBreak () {
   if (!breakIdeas) {
     loadIdeas()
-  }
-  if (breakPlanner.naturalBreaksManager.idleTime > settings.get('breakDuration')) {
-    console.log('in natural break')
-    return
   }
   // don't start another break if break running
   if (breakWins) {
@@ -990,9 +1012,6 @@ ipcMain.on('finish-break', function (event, shouldPlaySound) {
 })
 
 ipcMain.on('save-setting', function (event, key, value) {
-  if (key === 'naturalBreaks') {
-    breakPlanner.naturalBreaks(value)
-  }
   if (key === 'monitorDnd') {
     breakPlanner.doNotDisturb(value)
   }
